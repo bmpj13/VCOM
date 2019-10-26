@@ -5,7 +5,7 @@ import argparse
 harrisCornerThresh = 130    
 houghThresh = 10    
 
-src = cv.imread('images/20.jpg') 
+src = cv.imread('images/0.jpg') 
 src_gray = cv.cvtColor(src,cv.COLOR_BGR2GRAY)    
 
 # Apply harris corner detection

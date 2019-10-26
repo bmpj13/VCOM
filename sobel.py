@@ -15,7 +15,7 @@ def calcSobelGradient(img):
     gradient = cv.convertScaleAbs(gradient)
     return gradient
 
-img = cv.imread('images/8.jpg')
+img = cv.imread('images/6.jpg')
 gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
 cv.imshow('Gray', gray)
 
