@@ -13,63 +13,97 @@ def applyCLAHE(img, clipLimit, tileGridSize):
 
     return img_clahe
 
+def removeBadContours(img, minHeight = 25, maxHeight = 350, minRatio = 1.5):
+    img = img.copy()
+    img_colored = cv.cvtColor(img, cv.COLOR_GRAY2BGR)
+    mask = np.zeros(img.shape[:2], dtype="uint8")
 
-# Remove (as much as possible) non-grays from the image
-def keepGrays(img):
-    img_copy = img.copy()
-    img_hsv = cv.cvtColor(img_copy, cv.COLOR_BGR2HSV)
+    cnts, _ = cv.findContours(img, cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE)
+    contours = sorted(cnts, key=cv.contourArea, reverse=True)
+    for contour in contours:
+        x,y,w,h = cv.boundingRect(contour)
 
-    lower = np.array([0, 200, 40])
-    upper = np.array([180, 255, 255])
-    mask = cv.inRange(img_hsv, lower, upper)
-    img_copy[mask > 0] = [255, 255, 255]
+        if w*h < minHeight:     # exit loop if area is less than minHeight
+            break
+        elif h < minHeight or h > maxHeight or (h*1.0/w) < minRatio:    # if contour is bad, skip
+            continue
+        else:
+            cv.drawContours(mask, [contour], -1, 1, -1)
+            cv.rectangle(img_colored, (x,y), (x+w,y+h), (0,0,255), 2)
 
-    return img_copy
+        img_filtered_contours = cv.bitwise_and(img, img, mask=mask)
+
+    return img_filtered_contours, img_colored, mask
+
+def removeBadTargets(img, minArea = 2000, maxRatioHorizontal = 3, maxRatioVertical = 2.5):
+    img = img.copy()
+    img_colored = cv.cvtColor(img, cv.COLOR_GRAY2BGR)
+    mask = np.zeros(img.shape[:2], dtype="uint8")
+
+    cnts, _ = cv.findContours(img, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+    contours = sorted(cnts, key=cv.contourArea, reverse=True)
+
+    for contour in contours:
+        rbox = cv.minAreaRect(contour)
+        (x, y), (width, height), angle = rbox
+        x,y,width,height = int(x), int(y), int(width), int(height)
+        pts = cv.boxPoints(rbox).astype(np.int32)
+
+        if -90.0 <= angle <= -45.0:     # Switch height and width if angle between -90 and -45 to keep logic below
+            width,height = height,width
+
+        if width*height < minArea:
+            cv.drawContours(mask, [pts], -1, 0, -1)
+            cv.drawContours(img_colored, [pts], -1, (0, 255, 0), 1, cv.LINE_AA)
+        elif width*1.0/height > maxRatioHorizontal or height*1.0/width > maxRatioVertical:
+            cv.drawContours(mask, [pts], -1, 0, -1)
+            cv.drawContours(img_colored, [pts], -1, (255, 0, 0), 1, cv.LINE_AA)
+        else:
+            cv.drawContours(mask, [pts], -1, 1, -1)
+            cv.drawContours(img_colored, [pts], -1, (0, 0, 255), 1, cv.LINE_AA)
+
+    img_filtered_targets = cv.bitwise_and(img, img, mask=mask)
+
+    return img_filtered_targets, img_colored, mask
 
 
 for i in range(0, 26):
     img = cv.imread('images/{}.jpg'.format(i))
     img_clahe = applyCLAHE(img, 4.0, (8,8))
-    img_masked = keepGrays(img_clahe)
     img_gray = cv.cvtColor(img_clahe, cv.COLOR_BGR2GRAY)
-    img_thresh1 = cv.adaptiveThreshold(img_gray, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY_INV, 31, 30)
 
+    # Inverse image thresholding so our objects of interest (black bars) become white
+    img_thresh = cv.adaptiveThreshold(img_gray, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY_INV, 31, 30)
+
+    # Noise removal
     kernel = cv.getStructuringElement(cv.MORPH_RECT, (1, 3))
-    img_thresh1 = cv.morphologyEx(img_thresh1, cv.MORPH_OPEN, kernel)
+    img_thresh = cv.morphologyEx(img_thresh, cv.MORPH_OPEN, kernel)
 
-    cnts, _ = cv.findContours(img_thresh1, cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE)
-    contours = sorted(cnts, key=cv.contourArea, reverse=True)
-    mask = np.zeros(img.shape[:2], dtype="uint8")
-    thresh1_copy = cv.cvtColor(img_thresh1, cv.COLOR_GRAY2BGR)
-    for contour in contours:
-        x,y,w,h = cv.boundingRect(contour)
-        if w*h < 30:
-            break
-        elif h < 30 or (h*1.0/w) < 1.5:
-            continue
-        else:
-            cv.rectangle(thresh1_copy, (x,y), (x+w,y+h), (0,0,255), 2)
-            cv.drawContours(mask, [contour], -1, 1, -1)
-        
-    img_filtered_contours = cv.bitwise_and(img_thresh1, img_thresh1, mask=mask)
+    img_filtered_contours, _, _ = removeBadContours(img_thresh)
 
+    # Close black bars
     kernel = cv.getStructuringElement(cv.MORPH_RECT, (31, 1))
     img_closed = cv.morphologyEx(img_filtered_contours, cv.MORPH_CLOSE, kernel)
 
-    cnts, _ = cv.findContours(img_closed.copy(), cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
-    contours = sorted(cnts, key=cv.contourArea, reverse=True)
+    img_filtered_targets, img_colored, _ = removeBadTargets(img_closed)
 
+    cv.imshow('CLAHE', img_clahe)
+    cv.imshow('Gray', img_gray)
+    cv.imshow('Thresh', img_thresh)
+    cv.imshow('Filtered Contours', img_filtered_contours)
+    cv.imshow('Closed', img_closed)
+    cv.imshow('Filtered targets', img_filtered_targets)
+    cv.imshow('Colored', img_colored)
+
+    img_filtered_contours_copy = img_filtered_contours.copy()
+    cnts, _ = cv.findContours(img_filtered_targets, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+    contours = sorted(cnts, key=cv.contourArea, reverse=True)
     for contour in contours:
-        x,y,w,h = cv.boundingRect(contour)
+        mask = np.zeros(img_filtered_contours_copy.shape[:2], dtype="uint8")
         rbox = cv.minAreaRect(contour)
         pts = cv.boxPoints(rbox).astype(np.int32)
-        cv.drawContours(img, [pts], -1, (0, 0, 255), 1, cv.LINE_AA)
+        cv.drawContours(mask, [pts], -1, 1, -1)
+        target = cv.bitwise_and(img_filtered_contours_copy, img_filtered_contours_copy, mask=mask)
 
-    cv.imshow('Thresh 1', img_thresh1)
-    cv.imshow('Thresh 1 Boxes', thresh1_copy)
-    # cv.imshow('Filtered Contours', img_filtered_contours)
-    # cv.imshow('Masked', img_masked)
-    cv.imshow('Closed', img_closed)
-    cv.imshow('Image', img)
-    cv.imshow('Masked', img_masked)
-    cv.waitKey(0)
+        cv.imshow('Target', target)
+        cv.waitKey(0)
