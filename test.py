@@ -36,6 +36,27 @@ def get_box_values(box):
 
     return x, y, width, height, angle
 
+# http://felix.abecassis.me/2011/09/opencv-morphological-skeleton/
+def thinning(img):
+    img = img.copy()
+    size = np.size(img)
+    skel = np.zeros(img.shape,np.uint8)
+    element = cv.getStructuringElement(cv.MORPH_CROSS,(3,3))
+    
+    done = False
+    while(not done):
+        eroded = cv.erode(img, element)
+        temp = cv.dilate(eroded, element)
+        temp = cv.subtract(img, temp)
+        skel = cv.bitwise_or(skel, temp)
+        img = eroded.copy()
+
+        zeros = size - cv.countNonZero(img)
+        if zeros == size:
+            done = True
+
+    return skel
+
 
 # Apply CLAHE to colored image by converting to LAB colorspace
 def applyCLAHE(img, clipLimit, tileGridSize):
@@ -128,7 +149,6 @@ for i in range(0, 26):
     
     cnts, _ = cv.findContours(img_filtered_targets, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
     contours = sorted(cnts, key=cv.contourArea, reverse=True)
-    print()
     for contour in contours:
         mask = np.zeros(img.shape[:2], dtype="uint8")
         rbox = cv.minAreaRect(contour)
@@ -139,8 +159,15 @@ for i in range(0, 26):
 
         pts = cv.boxPoints(rbox).astype(np.int32)
         cv.drawContours(mask, [pts], -1, 1, -1)
+
         img_target = cv.bitwise_and(img_filtered_contours, img_filtered_contours, mask=mask)
         img_target = rotate_image(img_target, angle)
-        cv.imshow('Final target', img_target)
-        cv.waitKey(0)
-    print()
+
+        img_thinned = cv.Canny(img_target, 0, 150, apertureSize=3, L2gradient=True)
+        hough_lines = cv.HoughLinesP(img_thinned, 1, np.pi/6, 20, minLineLength=10)
+        hough_lines = hough_lines[:, 0, :] if hough_lines is not None else []
+
+        if len(hough_lines) >= 15:
+            cv.drawContours(img, [pts], -1, (0, 255, 0), 1, cv.LINE_AA)
+            cv.imshow('Final target', img)
+            cv.waitKey(0)
