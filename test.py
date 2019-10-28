@@ -36,28 +36,6 @@ def get_box_values(box):
 
     return x, y, width, height, angle
 
-# http://felix.abecassis.me/2011/09/opencv-morphological-skeleton/
-def thinning(img):
-    img = img.copy()
-    size = np.size(img)
-    skel = np.zeros(img.shape,np.uint8)
-    element = cv.getStructuringElement(cv.MORPH_CROSS,(3,3))
-    
-    done = False
-    while(not done):
-        eroded = cv.erode(img, element)
-        temp = cv.dilate(eroded, element)
-        temp = cv.subtract(img, temp)
-        skel = cv.bitwise_or(skel, temp)
-        img = eroded.copy()
-
-        zeros = size - cv.countNonZero(img)
-        if zeros == size:
-            done = True
-
-    return skel
-
-
 # Apply CLAHE to colored image by converting to LAB colorspace
 def applyCLAHE(img, clipLimit, tileGridSize):
     img_lab = cv.cvtColor(img, cv.COLOR_BGR2LAB)
@@ -74,9 +52,10 @@ def removeBadContours(img, minHeight = 20, maxHeight = 350, minRatio = 2):
     img = img.copy()
     img_colored = cv.cvtColor(img, cv.COLOR_GRAY2BGR)
     mask = np.zeros(img.shape[:2], dtype="uint8")
-
+    
     cnts, _ = cv.findContours(img, cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE)
     contours = sorted(cnts, key=cv.contourArea, reverse=True)
+    img_filtered_contours = np.zeros(img.shape[:2], dtype="uint8")
     for contour in contours:
         rbox = cv.minAreaRect(contour)
         pts = cv.boxPoints(rbox).astype(np.int32)
@@ -138,19 +117,19 @@ def pickROIs(img_src, img_dest):
 
         img_target = cv.bitwise_and(img_dest, img_dest, mask=mask)
         img_target = rotate_image(img_target, angle)
-
         img_thinned = cv.Canny(img_target, 0, 150, apertureSize=3, L2gradient=True)
-        hough_lines = cv.HoughLinesP(img_thinned, 1, np.pi/6, 20, minLineLength=10)
+
+        hough_lines = cv.HoughLines(img_thinned, 1, np.pi/6, 20, max_theta=np.pi/4)
         hough_lines = hough_lines[:, 0, :] if hough_lines is not None else []
 
         if len(hough_lines) >= 15:
-            rois.append(pts)
+            rois.append(mask)
     
     return rois
 
-for i in range(0, 26):
-    img = cv.imread('images/{}.jpg'.format(i))
-    img_clahe = applyCLAHE(img, 4.0, (8,8))
+def getBarcodes(img, angle = 0):
+    img_rotated = rotate_image(img, angle)
+    img_clahe = applyCLAHE(img_rotated, 4.0, (8,8))
     img_gray = cv.cvtColor(img_clahe, cv.COLOR_BGR2GRAY)
 
     # Inverse image thresholding so our objects of interest (black bars) become white
@@ -170,6 +149,9 @@ for i in range(0, 26):
 
     rois = pickROIs(img_filtered_targets, img_filtered_contours)
 
+    for i, roi in enumerate(rois):
+        rois[i] = rotate_image(roi, -angle)
+
     cv.imshow('Original', img)
     cv.imshow('CLAHE', img_clahe)
     cv.imshow('Gray', img_gray)
@@ -178,9 +160,14 @@ for i in range(0, 26):
     cv.imshow('Closed', img_closed)
     cv.imshow('Targets Filter', img_filtered_targets)
 
-    for pts in rois:
-        cv.drawContours(img, [pts], -1, (0, 255, 0), 1, cv.LINE_AA)
-        cv.imshow('Final target', img)
-        cv.waitKey(0)
+    return rois
+
+for i in range(0, 27):
+    img = cv.imread('images/{}.jpg'.format(i))
+    barcodes = getBarcodes(img) # + getBarcodes(img, 90)
     
-    
+    mask = np.zeros(img.shape[:2], dtype="uint8")
+    for roi in barcodes:
+        mask = cv.bitwise_or(mask, roi)
+    cv.imshow('Barcodes', cv.bitwise_and(img, img, mask=mask))
+    cv.waitKey(0)
