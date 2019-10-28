@@ -118,6 +118,35 @@ def removeBadTargets(img, minArea = 2000, maxRatioHorizontal = 3, maxRatioVertic
 
     return img_filtered_targets, img_colored, mask
 
+def pickROIs(img_src, img_dest):
+    img_src = img_src.copy()
+    img_dest = img_dest.copy()
+    rois = []
+
+    cnts, _ = cv.findContours(img_src, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+    contours = sorted(cnts, key=cv.contourArea, reverse=True)
+    for contour in contours:
+        mask = np.zeros(img_src.shape[:2], dtype="uint8")
+        rbox = cv.minAreaRect(contour)
+        x, y, width, height, angle = get_box_values(rbox)
+
+        if angle < -45.0:
+            angle += 90.0
+
+        pts = cv.boxPoints(rbox).astype(np.int32)
+        cv.drawContours(mask, [pts], -1, 1, -1)
+
+        img_target = cv.bitwise_and(img_dest, img_dest, mask=mask)
+        img_target = rotate_image(img_target, angle)
+
+        img_thinned = cv.Canny(img_target, 0, 150, apertureSize=3, L2gradient=True)
+        hough_lines = cv.HoughLinesP(img_thinned, 1, np.pi/6, 20, minLineLength=10)
+        hough_lines = hough_lines[:, 0, :] if hough_lines is not None else []
+
+        if len(hough_lines) >= 15:
+            rois.append(pts)
+    
+    return rois
 
 for i in range(0, 26):
     img = cv.imread('images/{}.jpg'.format(i))
@@ -139,6 +168,8 @@ for i in range(0, 26):
 
     img_filtered_targets, _, _ = removeBadTargets(img_closed)
 
+    rois = pickROIs(img_filtered_targets, img_filtered_contours)
+
     cv.imshow('Original', img)
     cv.imshow('CLAHE', img_clahe)
     cv.imshow('Gray', img_gray)
@@ -146,28 +177,10 @@ for i in range(0, 26):
     cv.imshow('Countours Filter', img_filtered_contours)
     cv.imshow('Closed', img_closed)
     cv.imshow('Targets Filter', img_filtered_targets)
+
+    for pts in rois:
+        cv.drawContours(img, [pts], -1, (0, 255, 0), 1, cv.LINE_AA)
+        cv.imshow('Final target', img)
+        cv.waitKey(0)
     
-    cnts, _ = cv.findContours(img_filtered_targets, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
-    contours = sorted(cnts, key=cv.contourArea, reverse=True)
-    for contour in contours:
-        mask = np.zeros(img.shape[:2], dtype="uint8")
-        rbox = cv.minAreaRect(contour)
-        x, y, width, height, angle = get_box_values(rbox)
-
-        if angle < -45.0:
-            angle += 90.0
-
-        pts = cv.boxPoints(rbox).astype(np.int32)
-        cv.drawContours(mask, [pts], -1, 1, -1)
-
-        img_target = cv.bitwise_and(img_filtered_contours, img_filtered_contours, mask=mask)
-        img_target = rotate_image(img_target, angle)
-
-        img_thinned = cv.Canny(img_target, 0, 150, apertureSize=3, L2gradient=True)
-        hough_lines = cv.HoughLinesP(img_thinned, 1, np.pi/6, 20, minLineLength=10)
-        hough_lines = hough_lines[:, 0, :] if hough_lines is not None else []
-
-        if len(hough_lines) >= 15:
-            cv.drawContours(img, [pts], -1, (0, 255, 0), 1, cv.LINE_AA)
-            cv.imshow('Final target', img)
-            cv.waitKey(0)
+    
