@@ -1,6 +1,7 @@
 import numpy as np
 import cv2 as cv
 from math import ceil
+import argparse
 
 def rotate_image(mat, angle):
     """
@@ -152,22 +153,63 @@ def getBarcodes(img, angle = 0):
     for i, roi in enumerate(rois):
         rois[i] = rotate_image(roi, -angle)
 
-    cv.imshow('Original', img)
-    cv.imshow('CLAHE', img_clahe)
-    cv.imshow('Gray', img_gray)
-    cv.imshow('Threshold', img_thresh)
-    cv.imshow('Countours Filter', img_filtered_contours)
-    cv.imshow('Closed', img_closed)
-    cv.imshow('Targets Filter', img_filtered_targets)
+    # cv.imshow('Original', img)
+    # cv.imshow('CLAHE', img_clahe)
+    # cv.imshow('Gray', img_gray)
+    # cv.imshow('Threshold', img_thresh)
+    # cv.imshow('Countours Filter', img_filtered_contours)
+    # cv.imshow('Closed', img_closed)
+    # cv.imshow('Targets Filter', img_filtered_targets)
 
     return rois
 
-for i in range(0, 27):
-    img = cv.imread('images/{}.jpg'.format(i))
-    barcodes = getBarcodes(img) # + getBarcodes(img, 90)
-    
+
+def capture_frame(cap):
+    stop = False
+    captured = False
+    ret, frame = cap.read()
+    if ret == True:
+        ret, frame = cap.read()
+        cv.imshow('Video', frame)
+        k = cv.waitKey(1)
+        
+        if k == 27:     # ESC pressed
+            stop = True
+        elif k == 13:   # ENTER pressed
+            captured = True
+    else:
+        stop = True
+
+    return stop, captured, frame
+
+def showResult(img, rois):
     mask = np.zeros(img.shape[:2], dtype="uint8")
-    for roi in barcodes:
+    for roi in rois:
         mask = cv.bitwise_or(mask, roi)
+
     cv.imshow('Barcodes', cv.bitwise_and(img, img, mask=mask))
     cv.waitKey(0)
+
+
+parser = argparse.ArgumentParser(description="A program that detects barcodes in images")
+parser.add_argument('--scan', help="Scan direction", choices=('vertical', 'horizontal'), default='vertical', type=str, metavar='')
+exclusive_group = parser.add_mutually_exclusive_group(required=True)
+exclusive_group.add_argument('--image', help='Path to image being scanned', type=str)
+exclusive_group.add_argument('--video', help='Use computer connected camera to retrieve images', action='store_true')
+args = parser.parse_args()
+
+
+angle = 0 if args.scan == 'vertical' else 90
+if args.video:
+    cap = cv.VideoCapture(0)
+    while (True):
+        stop, captured, frame = capture_frame(cap)
+        if stop:
+            break
+        elif captured:
+            barcodes = getBarcodes(frame, angle)
+            showResult(frame, barcodes)
+else:
+    img = cv.imread(args.image)
+    barcodes = getBarcodes(img, angle)
+    showResult(img, barcodes)
