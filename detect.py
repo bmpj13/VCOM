@@ -353,8 +353,9 @@ def linePercentage(img):
         size = math.sqrt( ((tr[0]-tl[0])**2)+((tr[1]-tl[1])**2) )
 
         perc = (size/totalSize)*100
-        acc+=perc
+        acc += perc
         print("%.2f" % perc, end = '%  ', flush=True)
+    print()
 
     if debug:
         print("Total size: ", totalSize)
