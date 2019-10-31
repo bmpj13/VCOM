@@ -1,7 +1,10 @@
 import numpy as np
 import cv2 as cv
-from math import ceil
+import math
 import argparse
+from scipy.spatial import distance as dist
+
+debug = False
 
 def rotate_image(mat, angle):
     """
@@ -182,12 +185,220 @@ def capture_frame(cap):
 
     return stop, captured, frame
 
+# https://www.pyimagesearch.com/2016/03/21/ordering-coordinates-clockwise-with-python-and-opencv/ 
+def order_points(pts):
+    xSorted = pts[np.argsort(pts[:, 0]), :]
+    leftMost = xSorted[:2, :]
+    rightMost = xSorted[2:, :]
+    leftMost = leftMost[np.argsort(leftMost[:, 1]), :]
+    (tl, bl) = leftMost
+    D = dist.cdist(tl[np.newaxis], rightMost, "euclidean")[0]
+    (br, tr) = rightMost[np.argsort(D)[::-1], :]
+    return np.array([tl, tr, br, bl], dtype="float32")
+
+
+def getPerspectiveBarcode(dilated, img):
+
+    barSize = 400
+    cnts, _ = cv.findContours(dilated, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE)
+    rect = cv.minAreaRect(cnts[0])
+    pts = order_points(cv.boxPoints(rect))
+    (tl, tr, br, bl) = pts
+
+    bCut = (bl[1]-tl[1]) * 0.2     # cut 20% bottom (barcode numbers)
+    
+    pts1 = np.float32([tl, tr, [bl[0],bl[1]-bCut],  [br[0],br[1]-bCut]])
+    pts2 = np.float32([[0,0],[barSize,0],[0,barSize], [barSize,barSize]])
+    M = cv.getPerspectiveTransform(pts1,pts2)
+    dst = cv.warpPerspective(img, M,(barSize,barSize))
+   
+    if(debug): cv.imshow('Perspective Barcodes', dst)
+    
+    # get bars using threshold
+    img_clahe = applyCLAHE(dst, 4.0, (8,8))
+    img_gray = cv.cvtColor(img_clahe, cv.COLOR_BGR2GRAY)
+
+    img_thresh = cv.adaptiveThreshold(img_gray, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, blockSize=41, C=10)
+    
+    if(debug): cv.imshow('Adaptive threshold', img_thresh)
+    kernel = cv.getStructuringElement(cv.MORPH_RECT, (2, 3))
+    img_closed = cv.morphologyEx(img_thresh, cv.MORPH_CLOSE, kernel, iterations=1 ) # remove noise
+    if(debug): cv.imshow('Adaptive threshold after close', img_closed)
+    kernel = cv.getStructuringElement(cv.MORPH_RECT, (1, 3))
+    img_closed = cv.morphologyEx(img_closed, cv.MORPH_OPEN, kernel, iterations=3)   # join bars vertically
+    if(debug): cv.imshow('Adaptive threshold after open', img_closed)
+    kernel = cv.getStructuringElement(cv.MORPH_RECT, (1, 5))
+    img_closed = cv.morphologyEx(img_closed, cv.MORPH_CLOSE, kernel, iterations=1 ) # remove noise
+
+    if(debug): cv.imshow('Adaptive threshold after close2', img_closed)
+
+    return (dst, img_closed, M)
+
+
+
+def scanLines(img, pos):
+    
+    lineImg = np.zeros(img.shape[:2], np.uint8)
+
+    if pos=="middle":
+        cv.line(lineImg, (0, 200), (400, 200), 255, 1, cv.LINE_AA)    
+    elif pos=="top":
+        cv.line(lineImg, (0, 100), (400, 100), 255, 1, cv.LINE_AA)  
+
+    if(debug): cv.imshow("Scan line "+pos, lineImg)
+
+    bar_lines = cv.bitwise_and(img, img, mask=lineImg)
+    if(debug): cv.imshow("Barcode scanned "+pos, bar_lines)
+
+    # number of lines in the scan
+    contours, _ = cv.findContours(bar_lines, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE)
+    nLines = len(contours)
+
+    return (lineImg, bar_lines, nLines)
+
+
+
+def scanBarcode(ori, barcode, barcodeThr, M):
+
+    height, width = ori.shape[:2]
+        
+    barcodeThr = cv.bitwise_not(barcodeThr)     # invert barcode
+    if(debug): cv.imshow("Barcode inverted", barcodeThr)
+    
+    # select the scan line that gets more lines
+    (scanLine, barScanned, nLinesM) = scanLines(barcodeThr, "middle")
+    (scanLineTop, barScannedTop, nLinesT) = scanLines(barcodeThr, "top")
+
+    if(nLinesT>nLinesM):
+        barScanned = barScannedTop
+        scanLine = scanLineTop
+
+
+    # red line over bar
+    redImg = np.zeros(barcode.shape, barcode.dtype)
+    redImg[:,:] = (0, 0, 255)
+    redMask = cv.bitwise_and(redImg, redImg, mask=barScanned)
+    res = cv.addWeighted(redMask, 1, barcode, 1, 0, barcode)
+    
+    cv.imshow("Barcode with scan", res)
+
+
+    ''' 
+
+    # get line of black bars to get the limits and then remove the black bars  
+    # to get the white spaces
+         
+    # Scan line in the barcode
+    teste = np.zeros(barcode.shape[:2], np.uint8)
+    lines = cv.HoughLinesP(barScanned, 1, np.pi / 180, 10, None, 50, 500)
+    (x1,y1,x2,y2) = lines[0][0]
+    cv.line(teste,(x1,y1),(x2,y2),255, 1, cv.LINE_AA)
+
+    if(debug): cv.imshow("Scan line cropped", teste)
+    
+    # blue line over spaces
+    inverseBarScanned = cv.bitwise_not(barScanned)
+    kernel = cv.getStructuringElement(cv.MORPH_RECT, (1, 5))
+    inverseBarScanned = cv.morphologyEx(inverseBarScanned, cv.MORPH_ERODE, kernel) 
+    if(debug): cv.imshow("inverseBarScanned", inverseBarScanned)
+
+
+    barScannedSpaces = cv.bitwise_and(teste, teste, mask=inverseBarScanned)
+    if(debug): cv.imshow("Scan line over spaces", barScannedSpaces)
+
+    blueImg = np.zeros(barcode.shape, barcode.dtype)
+    blueImg[:,:] = (0,255, 0)
+    blueMask = cv.bitwise_and(blueImg, blueImg, mask=barScannedSpaces)
+    if(debug): cv.imshow("blueMask", blueMask)
+
+    res = cv.addWeighted(blueMask, 1, barcode, 1, 0, barcode)
+    
+    if(debug): cv.imshow("Barcode with scan in spaces", res)
+
+    '''
+
+
+    # barcode to original perspective
+    cv.warpPerspective(res, M, (width, height), dst=ori,
+                       borderMode=cv.BORDER_TRANSPARENT, flags=cv.WARP_INVERSE_MAP)
+    
+    if(debug): cv.imshow('Scan result', ori)
+
+    return (ori, barScanned)
+
+ 
+
+def linePercentage(img):
+
+    # get line length by the dotted line
+    linesP = cv.HoughLinesP(img, 1, np.pi / 180, 10, None, 50, 20)
+
+    (x1,y1,x2,y2) = linesP[0][0]
+    totalSize = math.sqrt( (x2 - x1)**2 + (y2 - y1)**2 )
+
+    if(debug): print("Total size: ", totalSize)
+
+    # get countours
+    contours, _ = cv.findContours(img, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE)
+    img = cv.cvtColor(img, cv.COLOR_GRAY2BGR)
+
+    if(debug): print("N contours: ", len(contours))
+
+    acc=0
+    for c in contours:
+        rect = cv.minAreaRect(c)
+        pts = cv.boxPoints(rect)
+        pts = order_points(pts).astype(np.int32)
+        (tl, tr, _, _) = pts
+
+        cv.drawContours(img, [pts], -1, (0, 0, 255), 1, cv.LINE_AA)
+        
+        size = math.sqrt( ((tr[0]-tl[0])**2)+((tr[1]-tl[1])**2) )
+
+        perc = (size/totalSize)*100
+        acc+=perc
+        print("%.2f" % perc, end = '%  ', flush=True)
+
+    if(debug): print("\nTotal percentage", acc)
+    if(debug): cv.imshow("Scan line contours", img)
+
+
+def decodeBar(mask, img):
+
+    np.multiply(mask, 255)  
+    
+    # dilate barcode mask
+    kernel = cv.getStructuringElement(cv.MORPH_RECT, (10, 10))
+    dilated = cv.dilate(mask, kernel, iterations=2)
+    code_dilated = cv.bitwise_and(img, img, mask=dilated)
+
+    if(debug): cv.imshow('Barcode Image', code_dilated)
+
+    (barcodeImg, barcodeThr, M) = getPerspectiveBarcode(dilated, img)
+
+    (final, barcodeScanned) = scanBarcode(img, barcodeImg, barcodeThr, M)
+    cv.imshow('Scan result', final)
+    
+    linePercentage(barcodeScanned)
+    
+
+
 def showResult(img, rois):
     mask = np.zeros(img.shape[:2], dtype="uint8")
     for roi in rois:
         mask = cv.bitwise_or(mask, roi)
 
     cv.imshow('Barcodes', cv.bitwise_and(img, img, mask=mask))
+
+    img_ = img.copy()
+
+    # show in original image  
+    cnts, _ = cv.findContours(mask, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+    cv.drawContours(img, cnts, -1, (0,255,0), 1)
+    cv.imshow('Detected Barcodes', img)
+
+    decodeBar(mask, img_)
+
     cv.waitKey(0)
 
 
