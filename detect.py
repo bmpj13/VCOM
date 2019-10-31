@@ -4,7 +4,23 @@ import math
 import argparse
 from scipy.spatial import distance as dist
 
-debug = False
+def capture_frame(cap):
+    stop = False
+    captured = False
+    ret, frame = cap.read()
+    if ret == True:
+        ret, frame = cap.read()
+        cv.imshow('Video', frame)
+        k = cv.waitKey(1)
+        
+        if k == 27:     # ESC pressed
+            stop = True
+        elif k == 13:   # ENTER pressed
+            captured = True
+    else:
+        stop = True
+
+    return stop, captured, frame
 
 def rotate_image(mat, angle):
     """
@@ -156,34 +172,17 @@ def getBarcodes(img, angle = 0):
     for i, roi in enumerate(rois):
         rois[i] = rotate_image(roi, -angle)
 
-    # cv.imshow('Original', img)
-    # cv.imshow('CLAHE', img_clahe)
-    # cv.imshow('Gray', img_gray)
-    # cv.imshow('Threshold', img_thresh)
-    # cv.imshow('Countours Filter', img_filtered_contours)
-    # cv.imshow('Closed', img_closed)
-    # cv.imshow('Targets Filter', img_filtered_targets)
+    if debug:
+        cv.imshow('Localization: Original', img)
+        cv.imshow('Localization: Original rotated', img_rotated)
+        cv.imshow('Localization: CLAHE', img_clahe)
+        cv.imshow('Localization: Gray', img_gray)
+        cv.imshow('Localization: Threshold', img_thresh)
+        cv.imshow('Localization: Countours Filter', img_filtered_contours)
+        cv.imshow('Localization: Closed', img_closed)
+        cv.imshow('Localization: Targets Filter', img_filtered_targets)
 
     return rois
-
-
-def capture_frame(cap):
-    stop = False
-    captured = False
-    ret, frame = cap.read()
-    if ret == True:
-        ret, frame = cap.read()
-        cv.imshow('Video', frame)
-        k = cv.waitKey(1)
-        
-        if k == 27:     # ESC pressed
-            stop = True
-        elif k == 13:   # ENTER pressed
-            captured = True
-    else:
-        stop = True
-
-    return stop, captured, frame
 
 # https://www.pyimagesearch.com/2016/03/21/ordering-coordinates-clockwise-with-python-and-opencv/ 
 def order_points(pts):
@@ -211,8 +210,6 @@ def getPerspectiveBarcode(dilated, img):
     pts2 = np.float32([[0,0],[barSize,0],[0,barSize], [barSize,barSize]])
     M = cv.getPerspectiveTransform(pts1,pts2)
     dst = cv.warpPerspective(img, M,(barSize,barSize))
-   
-    if(debug): cv.imshow('Perspective Barcodes', dst)
     
     # get bars using threshold
     img_clahe = applyCLAHE(dst, 4.0, (8,8))
@@ -220,17 +217,21 @@ def getPerspectiveBarcode(dilated, img):
 
     img_thresh = cv.adaptiveThreshold(img_gray, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, blockSize=41, C=10)
     
-    if(debug): cv.imshow('Adaptive threshold', img_thresh)
     kernel = cv.getStructuringElement(cv.MORPH_RECT, (2, 3))
     img_closed = cv.morphologyEx(img_thresh, cv.MORPH_CLOSE, kernel, iterations=1 ) # remove noise
-    if(debug): cv.imshow('Adaptive threshold after close', img_closed)
+
     kernel = cv.getStructuringElement(cv.MORPH_RECT, (1, 3))
     img_closed = cv.morphologyEx(img_closed, cv.MORPH_OPEN, kernel, iterations=3)   # join bars vertically
-    if(debug): cv.imshow('Adaptive threshold after open', img_closed)
+
     kernel = cv.getStructuringElement(cv.MORPH_RECT, (1, 5))
     img_closed = cv.morphologyEx(img_closed, cv.MORPH_CLOSE, kernel, iterations=1 ) # remove noise
 
-    if(debug): cv.imshow('Adaptive threshold after close2', img_closed)
+    if debug:
+        cv.imshow('Decoding: Perspective Barcodes', dst)
+        cv.imshow('Decoding: Adaptive threshold', img_thresh)
+        cv.imshow('Decoding: Adaptive threshold after close', img_closed)
+        cv.imshow('Decoding: Adaptive threshold after open', img_closed)
+        cv.imshow('Decoding: Adaptive threshold after close2', img_closed)
 
     return (dst, img_closed, M)
 
@@ -243,16 +244,17 @@ def scanLines(img, pos):
     if pos=="middle":
         cv.line(lineImg, (0, 200), (400, 200), 255, 2, cv.LINE_AA)    
     elif pos=="top":
-        cv.line(lineImg, (0, 100), (400, 100), 255, 2, cv.LINE_AA)  
-
-    if(debug): cv.imshow("Scan line "+pos, lineImg)
+        cv.line(lineImg, (0, 100), (400, 100), 255, 2, cv.LINE_AA) 
 
     bar_lines = cv.bitwise_and(img, img, mask=lineImg)
-    if(debug): cv.imshow("Barcode scanned "+pos, bar_lines)
 
     # number of lines in the scan
     contours, _ = cv.findContours(bar_lines, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE)
     nLines = len(contours)
+
+    if debug:
+        cv.imshow("Decoding: Scan line " + pos, lineImg)
+        cv.imshow("Decoding: Barcode scanned " + pos, bar_lines)
 
     return (lineImg, bar_lines, nLines)
 
@@ -263,13 +265,12 @@ def scanBarcode(ori, barcode, barcodeThr, M):
     height, width = ori.shape[:2]
         
     barcodeThr = cv.bitwise_not(barcodeThr)     # invert barcode
-    if(debug): cv.imshow("Barcode inverted", barcodeThr)
     
     # select the scan line that gets more lines
     (scanLine, barScanned, nLinesM) = scanLines(barcodeThr, "middle")
     (scanLineTop, barScannedTop, nLinesT) = scanLines(barcodeThr, "top")
 
-    if(nLinesT>nLinesM):
+    if nLinesT > nLinesM:
         barScanned = barScannedTop
         scanLine = scanLineTop
 
@@ -280,8 +281,6 @@ def scanBarcode(ori, barcode, barcodeThr, M):
     redMask = cv.bitwise_and(redImg, redImg, mask=barScanned)
     res = cv.addWeighted(redMask, 1, barcode, 1, 0, barcode)
     
-    cv.imshow("Barcode with scan", res)
-
 
     ''' 
 
@@ -321,30 +320,28 @@ def scanBarcode(ori, barcode, barcodeThr, M):
     # barcode to original perspective
     cv.warpPerspective(res, M, (width, height), dst=ori,
                        borderMode=cv.BORDER_TRANSPARENT, flags=cv.WARP_INVERSE_MAP)
-    
-    if(debug): cv.imshow('Scan result', ori)
+
+    if debug:
+        cv.imshow("Decoding: Barcode inverted", barcodeThr)
+        cv.imshow("Decoding: Barcode with scan", res)
+        cv.imshow('Decoding: Scan result', ori)
 
     return (ori, barScanned)
 
  
 
 def linePercentage(img):
-
     # get line length by the dotted line
     linesP = cv.HoughLinesP(img, 1, np.pi / 180, 10, None, 50, 20)
 
     (x1,y1,x2,y2) = linesP[0][0]
     totalSize = math.sqrt( (x2 - x1)**2 + (y2 - y1)**2 )
 
-    if(debug): print("Total size: ", totalSize)
-
     # get countours
     contours, _ = cv.findContours(img, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE)
     img = cv.cvtColor(img, cv.COLOR_GRAY2BGR)
 
-    if(debug): print("N contours: ", len(contours))
-
-    acc=0
+    acc = 0
     for c in contours:
         rect = cv.minAreaRect(c)
         pts = cv.boxPoints(rect)
@@ -359,12 +356,13 @@ def linePercentage(img):
         acc+=perc
         print("%.2f" % perc, end = '%  ', flush=True)
 
-    if(debug): print("\nTotal percentage", acc)
-    if(debug): cv.imshow("Scan line contours", img)
-
+    if debug:
+        print("Total size: ", totalSize)
+        print("N contours: ", len(contours))
+        print("\nTotal percentage", acc)
+        cv.imshow("Decoding: Scan line contours", img)
 
 def decodeBar(mask, img):
-
     np.multiply(mask, 255)  
     
     # dilate barcode mask
@@ -372,14 +370,16 @@ def decodeBar(mask, img):
     dilated = cv.dilate(mask, kernel, iterations=2)
     code_dilated = cv.bitwise_and(img, img, mask=dilated)
 
-    if(debug): cv.imshow('Barcode Image', code_dilated)
-
     (barcodeImg, barcodeThr, M) = getPerspectiveBarcode(dilated, img)
 
     (final, barcodeScanned) = scanBarcode(img, barcodeImg, barcodeThr, M)
-    cv.imshow('Scan result', final)
+    
+    if debug:
+        cv.imshow('Decoding: Barcode Image', code_dilated)
     
     linePercentage(barcodeScanned)
+
+    return final
     
 
 
@@ -388,28 +388,31 @@ def showResult(img, rois):
     for roi in rois:
         mask = cv.bitwise_or(mask, roi)
 
-    cv.imshow('Barcodes', cv.bitwise_and(img, img, mask=mask))
+    # cv.imshow('Barcodes', cv.bitwise_and(img, img, mask=mask))
 
     img_ = img.copy()
 
     # show in original image  
     cnts, _ = cv.findContours(mask, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
     cv.drawContours(img, cnts, -1, (0,255,0), 1)
-    cv.imshow('Detected Barcodes', img)
+    cv.imshow('Localization: Detected Barcodes', img)
 
-    decodeBar(mask, img_)
+    final = decodeBar(mask, img_)
+
+    cv.imshow('Decoding: Final', final)
 
     cv.waitKey(0)
 
 
 parser = argparse.ArgumentParser(description="A program that detects barcodes in images")
 parser.add_argument('--scan', help="Scan direction", choices=('vertical', 'horizontal'), default='vertical', type=str, metavar='')
+parser.add_argument('--debug', action='store_true')
 exclusive_group = parser.add_mutually_exclusive_group(required=True)
 exclusive_group.add_argument('--image', help='Path to image being scanned', type=str)
 exclusive_group.add_argument('--video', help='Use computer connected camera to retrieve images', action='store_true')
 args = parser.parse_args()
 
-
+debug = args.debug
 angle = 0 if args.scan == 'vertical' else 90
 if args.video:
     cap = cv.VideoCapture(0)
