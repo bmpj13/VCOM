@@ -241,9 +241,9 @@ def scanLines(img, pos):
     lineImg = np.zeros(img.shape[:2], np.uint8)
 
     if pos=="middle":
-        cv.line(lineImg, (0, 200), (400, 200), 255, 1, cv.LINE_AA)    
+        cv.line(lineImg, (0, 200), (400, 200), 255, 2, cv.LINE_AA)    
     elif pos=="top":
-        cv.line(lineImg, (0, 100), (400, 100), 255, 1, cv.LINE_AA)  
+        cv.line(lineImg, (0, 100), (400, 100), 255, 2, cv.LINE_AA)  
 
     if(debug): cv.imshow("Scan line "+pos, lineImg)
 
