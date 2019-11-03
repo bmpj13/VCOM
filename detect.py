@@ -362,8 +362,6 @@ def showResult(img, rois, angle):
     for roi in rois:
         mask = cv.bitwise_or(mask, roi)
 
-    # cv.imshow('Barcodes', cv.bitwise_and(img, img, mask=mask))
-
     img_ = rotate_image(img, angle)
     mask_ = rotate_image(mask, angle)
 
@@ -378,14 +376,7 @@ def showResult(img, rois, angle):
 
     cv.waitKey(0)
     cv.destroyAllWindows()
-
-
-
-# for i in range(26, 27):
-#     img = cv.imread('images/{}.jpg'.format(i))
-#     barcodes = getBarcodes(img, 90)
-#     showResult(img, barcodes, 90)
-
+    
  
 parser = argparse.ArgumentParser(description="A program that detects barcodes in images")
 parser.add_argument('--orientation', help="Scan direction", choices=('fence', 'ladder'), default='fence', type=str)
