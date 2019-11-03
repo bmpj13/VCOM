@@ -205,10 +205,10 @@ def getPerspectiveBarcode(img, contour, barSize = 400):
     pts = order_points(cv.boxPoints(rect))
     (tl, tr, br, bl) = pts
 
-    bCut = (bl[1]-tl[1]) * 0.2     # cut 20% bottom (barcode numbers)
+    bCut = 70    
     
-    pts1 = np.float32([tl, tr, [bl[0],bl[1]-bCut],  [br[0],br[1]-bCut]])
-    pts2 = np.float32([[0,0],[barSize,0],[0,barSize], [barSize,barSize]])
+    pts1 = np.float32([tl, tr, bl, br])
+    pts2 = np.float32([[0,0],[barSize,0],[0,barSize+bCut], [barSize,barSize+bCut]])
     M = cv.getPerspectiveTransform(pts1,pts2)
 
     # put image in perspective
@@ -281,7 +281,7 @@ def scanBarcode(ori, barcode, barcodeThr, M):
 
     
     # dilate bar in vertical 
-    kernel = cv.getStructuringElement(cv.MORPH_RECT, (1, 6))
+    kernel = cv.getStructuringElement(cv.MORPH_RECT, (1, 7))
     barScannedCopy = cv.dilate(barScanned,kernel,iterations = 1)
     blankScannedCopy = cv.dilate(blankScanned,kernel,iterations = 1)
  
@@ -343,7 +343,7 @@ def decodeBar(mask, img):
     
     # dilate barcode mask
     kernel = cv.getStructuringElement(cv.MORPH_RECT, (10, 10))
-    dilated = cv.dilate(mask, kernel, iterations=2)
+    dilated = cv.dilate(mask, kernel, iterations=1)
     code_dilated = cv.bitwise_and(img, img, mask=dilated)
     
     # isolate each barcode 
