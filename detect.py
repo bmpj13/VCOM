@@ -357,14 +357,15 @@ def decodeBar(mask, img):
     return img    
 
 
-def showResult(img, rois):
+def showResult(img, rois, angle):
     mask = np.zeros(img.shape[:2], dtype="uint8")
     for roi in rois:
         mask = cv.bitwise_or(mask, roi)
 
     # cv.imshow('Barcodes', cv.bitwise_and(img, img, mask=mask))
 
-    img_ = img.copy()
+    img_ = rotate_image(img, angle)
+    mask_ = rotate_image(mask, angle)
 
     # show in original image  
     cnts, _ = cv.findContours(mask, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
@@ -372,7 +373,7 @@ def showResult(img, rois):
     cv.imshow('Localization: Detected Barcodes', img)
 
     if(len(cnts)!=0):
-        final = decodeBar(mask, img_)
+        final = rotate_image(decodeBar(mask_, img_), -angle)
         cv.imshow('Decoding: Final', final)
 
     cv.waitKey(0)
@@ -380,15 +381,14 @@ def showResult(img, rois):
 
 
 
-for i in range(0, 27):
-    img = cv.imread('images/{}.jpg'.format(i))
-    barcodes = getBarcodes(img, 0)
-    showResult(img, barcodes)
+# for i in range(26, 27):
+#     img = cv.imread('images/{}.jpg'.format(i))
+#     barcodes = getBarcodes(img, 90)
+#     showResult(img, barcodes, 90)
 
  
-'''
 parser = argparse.ArgumentParser(description="A program that detects barcodes in images")
-parser.add_argument('--scan', help="Scan direction", choices=('vertical', 'horizontal'), default='vertical', type=str, metavar='')
+parser.add_argument('--orientation', help="Scan direction", choices=('fence', 'ladder'), default='fence', type=str)
 parser.add_argument('--debug', action='store_true')
 exclusive_group = parser.add_mutually_exclusive_group(required=True)
 exclusive_group.add_argument('--image', help='Path to image being scanned', type=str)
@@ -396,7 +396,7 @@ exclusive_group.add_argument('--video', help='Use computer connected camera to r
 args = parser.parse_args()
 
 debug = args.debug
-angle = 0 if args.scan == 'vertical' else 90
+angle = 0 if args.orientation == 'fence' else 90
 if args.video:
     cap = cv.VideoCapture(0)
     while (True):
@@ -405,9 +405,8 @@ if args.video:
             break
         elif captured:
             barcodes = getBarcodes(frame, angle)
-            showResult(frame, barcodes)
+            showResult(frame, barcodes, angle)
 else:
     img = cv.imread(args.image)
     barcodes = getBarcodes(img, angle)
-    showResult(img, barcodes)
-'''       
+    showResult(img, barcodes, angle)
