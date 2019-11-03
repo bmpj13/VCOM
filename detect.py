@@ -294,7 +294,7 @@ def scanBarcode(ori, barcode, barcodeThr, M):
                        borderMode=cv.BORDER_TRANSPARENT, flags=cv.WARP_INVERSE_MAP)
 
     if debug:
-        cv.imshow('Decoding: Scan result', ori)
+        # cv.imshow('Decoding: Scan result', ori)
         cv.imshow("Decoding: Barcode with scan", barcode)
 
     return (ori, barScanned, blankScanned)
