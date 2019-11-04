@@ -3,5 +3,5 @@
 Run 'python3 detect.py -h' for more information on how to run.
 Examples:
     python3 detect.py --image images/0.jpg
-    python3 detect.py --image/images/26.jpg --orientation ladder
+    python3 detect.py --image images/26.jpg --orientation ladder
     python3 detect.py --video
